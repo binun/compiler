@@ -136,7 +136,7 @@
 **/
 
 /** 1 Standard headers **/
-//#include "stdafx.h"
+#include "stdafx.h"
 #include <fstream>
 #include <iostream>
 #include <string>

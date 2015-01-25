@@ -1,3 +1,4 @@
+#include "stdafx.h"
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -32,19 +33,18 @@ int loadStart=0;
 int instrOffset=0;
 int datadeclOffset=0;
 int nextAddress = 0;
-
+int startDataSegment;
 bool skip_leading_zeroes = false;
-bool codeFinished=0;
 
 string Nextcell = string("Next"),  
 	   Subleq_Nextcell = string("?"),
-	   NextLabel = string("[PC+1]"),  // default jump label is the next instruction
 	   Subleq_Instr_Prefix = string("subleq ");
 
 std::map<unsigned long,string> numlabels;
 std::map<string,int> labelAddresses;
 std::map<string,int> labelValues;
 string numlabel_decl;
+string dataDeclString;
 
 //  --------------------------  Utilities ------------------------------------------------------------
 
@@ -210,7 +210,7 @@ string handleNumber(string& numStr)
 	return "label" + numStr;
 }
 
-void collectDeclarations(string & decl)
+void preprocessDeclarations(string & decl)  ///determine actual addresses for 
 {
 	if (decl.find(Subleq_Nextcell)==std::string::npos) // no ? in the string
 	{
@@ -243,10 +243,10 @@ void collectDeclarations(string & decl)
 
 string parseDataDecl(string & decl)
 {
-	string data = ". ";
+	string data = "";
 	static bool nextDeclared=0;
-	if (decl.find(Subleq_Nextcell)!=std::string::npos) // .?		
-	   {
+	if (decl.find(Subleq_Nextcell)!=std::string::npos) // it IS .?		
+	{
 		   if (!nextDeclared)
 		   {
 			 data = data + Nextcell + labelSign + "0";
@@ -254,13 +254,18 @@ string parseDataDecl(string & decl)
 		   }
 		   else
 			 data = std::string("");
-	    }
+	}
 	else
 	{
+	  
 	  string declaration;
 	  string declarations = trim(replaceAll(decl, ".",""));
       istringstream parser(declarations);
-	  
+	  if (startDataSegment>0)
+	  {
+		  data = data + "DATA_START:" + convert_to_binary_string(std::to_string(startDataSegment)) + "\n";
+		  startDataSegment=0;
+	  }
 	  while (getline(parser, declaration, operandSeparator))
 	   {
 		 string varname,initexpr;
@@ -277,7 +282,7 @@ string parseDataDecl(string & decl)
 		 datadeclOffset = datadeclOffset+STEP_IN_BYTES;
 	   }
 	}
-
+	dataDeclString = dataDeclString  + " " + data;
 	return data;
 }
 
@@ -324,12 +329,16 @@ string convertSubleqCommand(string & command)
 	vector<string> operands;
     string part,result;
 	istringstream is(command);
-    
-	if (firstChar==dataStart)  // Check if this line is like . Z:-1 Z0:0 t1:0 t2:0 x:30 y:20  - Add binary declarations
-       return parseDataDecl(command);
+
+	if (firstChar==dataStart)
+		return parseDataDecl(command);// This line . Z:-1 Z0:0 t1:0 t2:0 x:30 y:20  - Add binary declarations
 
 	if (lastChar==labelSign)  //label
-		return command;
+	{
+		string labName = command.substr(0,command.length()-1);
+		//return command;
+		return convert_to_binary_string(std::to_string(labelAddresses[labName]));
+	}
 
 	if (is_number(command)) // numeric constant like 0
 		return command;
@@ -359,6 +368,8 @@ string convertAll(string asmcode)
 	instrOffset = 0;
 	datadeclOffset=0;
 	nextAddress = 0;
+	dataDeclString = ". ";
+	startDataSegment=0;
 
 	for (int i = 0; i < lines.size(); i++)
 	{
@@ -370,7 +381,6 @@ string convertAll(string asmcode)
 	}
 
 	// Compute the code portion for setting data offset
-	datadeclOffset=0;
 	for (int i = 0; i < subleqCommands.size(); i++)
 	{		
 		string trimmedCommand = trim(subleqCommands.at(i));
@@ -395,34 +405,32 @@ string convertAll(string asmcode)
 		datadeclOffset = datadeclOffset + operands.size()*STEP_IN_BYTES;
 	}
 
+	startDataSegment = datadeclOffset;
+
 	for (int i = 0; i < subleqCommands.size(); i++)
 	{		
 		string trimmedCommand = trim(subleqCommands.at(i));
 		
-		istringstream is(trimmedCommand);
         char firstChar = ltrim(trimmedCommand).at(0);
         if (firstChar==dataStart) 
-			collectDeclarations(trimmedCommand);    
+			preprocessDeclarations(trimmedCommand); 
 	}
 
     for (int i = 0; i < subleqCommands.size(); i++)
 	{
 		string currentCommand = subleqCommands.at(i);
 		string trimmedCommand = trim(currentCommand);
-		
-		string convertedCommand = convertSubleqCommand(trimmedCommand); 
+
+	    string convertedCommand = convertSubleqCommand(trimmedCommand); 
 		instrOffsets.push_back(instrOffset);
 		convertedCommands.push_back(convertedCommand);
-		//if (convertedCommand.find(Subleq_Nextcell)!=std::string::npos) // .?
-		//{
-			//cout << convertedCommand;
-	    //}
-		
 		if (convertedCommand.length()>0)
-		 code+=convertedCommand + '\n';
+		  code+=convertedCommand + '\n';
+
 	}
 
-	code = code + numlabel_decl + '\n';
+	//code = code + numlabel_decl + '\n';
+	//code = code + dataDeclString + '\n';
 	//instrOffset = instrOffset+STEP_IN_BYTES; //one more command
 	//datadeclOffset = instrOffset;
 	return code;
