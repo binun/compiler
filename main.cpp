@@ -277,8 +277,9 @@ string parseDataDecl(string & decl)
 		   {
 		     getline(dp,initexpr,labelSign); // initializer
 			 data = data + varname+labelSign;
-             data = data + convert_to_binary_string(std::to_string(eval(initexpr))) + " ";
-		   }
+             data = data + convert_to_binary_string(std::to_string(eval(initexpr)));
+		 }
+		 data = data + "(#"+convert_to_binary_string(std::to_string(datadeclOffset)) + ") ";
 		 datadeclOffset = datadeclOffset+STEP_IN_BYTES;
 	   }
 	}
