@@ -16,6 +16,8 @@
 #include <locale>
 
 using namespace std;
+typedef std::map<int,int> intmap;
+typedef std::map<string,int> strmap;
 
 //TASK - Scroll to end, process data definitions, then get back to the compiler to use variable declarations (
 
@@ -40,11 +42,12 @@ string Nextcell = string("Next"),
 	   Subleq_Nextcell = string("?"),
 	   Subleq_Instr_Prefix = string("");
 
-std::map<unsigned long,string> numlabels;
-std::map<string,int> labelAddresses;
-std::map<string,int> labelValues;
+strmap labelAddresses;
+strmap labelValues;
+intmap memoryRefs;
 string numlabel_decl;
 string dataDeclString;
+vector<int> instrSizes;
 
 //  --------------------------  Utilities ------------------------------------------------------------
 
@@ -91,7 +94,7 @@ int eval(string& expr)
 
 string convert_to_binary_string(string arg)
 {
-	/*string str;
+	string str;
     int value = atoi(arg.c_str());
 	//if (!value)
 		//return string("0");
@@ -114,8 +117,8 @@ string convert_to_binary_string(string arg)
         }
     }
 	
-    return str;*/
-	return arg;
+    return str;
+	//return arg;
 }
 
 // trim from start
@@ -161,7 +164,7 @@ string setIP(string& subject, int nextAddr)
 	else 
 	{
 		res = replaceAll(subject, Subleq_Nextcell, Nextcell); // Next+...
-	    if (res.find("+")!=std::string::npos) // Next+...
+	    if (res.find("+")!=std::string::npos) // Next+Num
 		{
 			// convert the after-+ constant into the binary format
 			istringstream is(res);
@@ -169,7 +172,17 @@ string setIP(string& subject, int nextAddr)
 			getline(is, label, '+'); //Next...
 			getline(is, offset, '+'); //constant
 			res= label + "+" + convert_to_binary_string(offset);
-			absolute = convert_to_binary_string(std::to_string(nextAddr + atoi(offset.c_str()))); 
+            int rightEnd = atoi(offset.c_str());
+			absolute = convert_to_binary_string(std::to_string(nextAddr + rightEnd)); 
+			auto it = memoryRefs.find(nextAddr);
+            
+			if (it!=memoryRefs.end()) // zone found		
+			{
+				if (rightEnd > it->second)
+					it->second = rightEnd;
+			}	
+			else
+			   memoryRefs[nextAddr] = rightEnd;
 		}
 		else //a label
 		{
@@ -197,18 +210,6 @@ vector<string> splitIntoLines(string &asmcode)
         res.push_back(line);
     }
     return res;
-}
-
-string handleNumber(string& numStr)
-{
-	int num = atoi(numStr.c_str());
-	if (numlabels.find(num)==numlabels.end()) // not found		
-	{
-		numlabels[num] = convert_to_binary_string(numStr);
-		numlabel_decl = "label" + numStr+":"+numlabels[num] + " ";
-	}
-
-	return "label" + numStr;
 }
 
 void preprocessDeclarations(string & decl)  ///determine actual addresses for 
@@ -294,11 +295,12 @@ string parseDataDecl(string & decl)
 string convertRest(vector<string> & operands)
 {
 	string op1,op2,op3,result;
-		
+
+    nextAddress = instrOffset+STEP_IN_BYTES;
+    op1 = setIP(operands.at(0),nextAddress); // first operand always exists
+
 	if (operands.size()==1)      
-	{
-        nextAddress = instrOffset+STEP_IN_BYTES;
-        op1 = setIP(operands.at(0),nextAddress); // first operand always exists
+	{    
 		op2 = op1;                               // if only one operand op1 then op2:=op1; label:=next; Note that constants are not used in one-op instructions
 		op3 = convert_to_binary_string(std::to_string(nextAddress));
 		result = Subleq_Instr_Prefix + op1;
@@ -347,7 +349,7 @@ string convertSubleqCommand(string & command)
 
     while (getline(is, part, operandSeparator))
 	   operands.push_back(part);
-
+	instrSizes.push_back(operands.size());
 	result = convertRest(operands);
 
 	return "\t" + result + commandSeparator;
@@ -359,13 +361,12 @@ string convertAll(string asmcode)
 {
 	vector<string> lines = splitIntoLines(asmcode);
 	vector<string> subleqCommands;
-	vector<int> instrOffsets;
 	string code;
 	vector<string> convertedCommands;
 
-	numlabels.clear();
     labelAddresses.clear();
 	labelValues.clear();
+	memoryRefs.clear();
 	numlabel_decl =". ";
 	instrOffset = 0;
 	datadeclOffset=0;
@@ -423,13 +424,19 @@ string convertAll(string asmcode)
 
 	datadeclOffset = startDataSegment;
 
+    for( auto it = memoryRefs.begin(); it != memoryRefs.end(); ++it )
+	{
+		int key = it->first;
+		int& value = it->second;
+		//cout << "First:" << key << " Second:" << value << endl;
+	}
+
     for (int i = 0; i < subleqCommands.size(); i++)
 	{
 		string currentCommand = subleqCommands.at(i);
 		string trimmedCommand = trim(currentCommand);
 
 	    string convertedCommand = convertSubleqCommand(trimmedCommand); 
-		instrOffsets.push_back(instrOffset);
 
 		if (instrOffset%30==0)
 			code+=convert_to_binary_string(std::to_string(instrOffset)) + ":\n";
@@ -437,9 +444,8 @@ string convertAll(string asmcode)
 		convertedCommands.push_back(convertedCommand);
 		if (convertedCommand.length()>0)
 		  code+=convertedCommand + '\n';
-
 	}
-
+	
 	//code = code + numlabel_decl + '\n';
 	//code = code + dataDeclString + '\n';
 	//instrOffset = instrOffset+STEP_IN_BYTES; //one more command
