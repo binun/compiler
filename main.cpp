@@ -38,7 +38,7 @@ bool skip_leading_zeroes = false;
 
 string Nextcell = string("Next"),  
 	   Subleq_Nextcell = string("?"),
-	   Subleq_Instr_Prefix = string("subleq ");
+	   Subleq_Instr_Prefix = string("");
 
 std::map<unsigned long,string> numlabels;
 std::map<string,int> labelAddresses;
@@ -91,7 +91,7 @@ int eval(string& expr)
 
 string convert_to_binary_string(string arg)
 {
-	string str;
+	/*string str;
     int value = atoi(arg.c_str());
 	//if (!value)
 		//return string("0");
@@ -113,8 +113,9 @@ string convert_to_binary_string(string arg)
                 str += '0';
         }
     }
-
-    return str;
+	
+    return str;*/
+	return arg;
 }
 
 // trim from start
@@ -147,7 +148,7 @@ string replaceAll(string subject, const std::string& search, const std::string& 
 
 
 
-string setIP(string& subject)
+string setIP(string& subject, int nextAddr)
 {
 	string res,absolute;
 
@@ -168,9 +169,9 @@ string setIP(string& subject)
 			getline(is, label, '+'); //Next...
 			getline(is, offset, '+'); //constant
 			res= label + "+" + convert_to_binary_string(offset);
-			absolute = convert_to_binary_string(std::to_string(nextAddress + atoi(offset.c_str()))); 
+			absolute = convert_to_binary_string(std::to_string(nextAddr + atoi(offset.c_str()))); 
 		}
-		else //a label - numeric or symbolic ...
+		else //a label
 		{
 			if (labelAddresses.find(res)!=labelAddresses.end())
 			  absolute = convert_to_binary_string(std::to_string(labelAddresses[res]));
@@ -292,33 +293,33 @@ string parseDataDecl(string & decl)
 
 string convertRest(vector<string> & operands)
 {
-	string op1,op2,op3;
-	string result;
-	nextAddress = instrOffset+STEP_IN_BYTES;
-	op1 = setIP(operands.at(0)); // first operand always exists
-	if (operands.size()==1)      // if only one operand op1 then op2:=op1; label:=next; Note that constants are not used in one-op instructions
+	string op1,op2,op3,result;
+		
+	if (operands.size()==1)      
 	{
-		op2 = op1;
+        nextAddress = instrOffset+STEP_IN_BYTES;
+        op1 = setIP(operands.at(0),nextAddress); // first operand always exists
+		op2 = op1;                               // if only one operand op1 then op2:=op1; label:=next; Note that constants are not used in one-op instructions
 		op3 = convert_to_binary_string(std::to_string(nextAddress));
-		//result = Subleq_Instr_Prefix + op1;
+		result = Subleq_Instr_Prefix + op1;
 	}
 	else if (operands.size()==2)//two operands: label:=next
       {
         nextAddress = instrOffset+2*STEP_IN_BYTES;
-		op2=setIP(operands.at(1));
+		op2=setIP(operands.at(1),nextAddress);
 		op3 = convert_to_binary_string(std::to_string(nextAddress));
-		//result = Subleq_Instr_Prefix + op1 + " " + op2;
+		result = Subleq_Instr_Prefix + op1 + " " + op2;
 	  }
 	else 
 	  {
 		nextAddress = instrOffset+2*STEP_IN_BYTES;
-		op2=setIP(operands.at(1));
+		op2=setIP(operands.at(1),nextAddress);
 		nextAddress = instrOffset+3*STEP_IN_BYTES;
-		op3=setIP(operands.at(2));
-		//result = Subleq_Instr_Prefix + op1 + " " + op2 + " " + op3; 
+		op3=setIP(operands.at(2),nextAddress);
+		result = Subleq_Instr_Prefix + op1 + " " + op2 + " " + op3; 
 	  }
 	instrOffset = instrOffset + operands.size()*STEP_IN_BYTES;
-	result = Subleq_Instr_Prefix + op1 + " " + op2 + " " + op3; //subleq op1 op2 label
+	//result = Subleq_Instr_Prefix + op1 + " " + op2 + " " + op3; //subleq op1 op2 label
 
 	return result;
 }
@@ -338,11 +339,11 @@ string convertSubleqCommand(string & command)
 	{
 		string labName = command.substr(0,command.length()-1);
 		//return command;
-		return convert_to_binary_string(std::to_string(labelAddresses[labName]));
+		return convert_to_binary_string(std::to_string(labelAddresses[labName])) + ":";
 	}
 
-	if (is_number(command)) // numeric constant like 0
-		return command;
+	//if (is_number(command)) // numeric constant like 0
+		//return command;
 
     while (getline(is, part, operandSeparator))
 	   operands.push_back(part);
@@ -380,6 +381,9 @@ string convertAll(string asmcode)
         while (getline(is, part, commandSeparator))
 			subleqCommands.push_back(part);
 	}
+    // Line 0 always redirects us to the main point. Correct it...
+	subleqCommands.erase(subleqCommands.begin());
+	subleqCommands.insert(subleqCommands.begin(), std::string("0 0 sqmain"));
 
 	// Compute the code portion for setting data offset
 	for (int i = 0; i < subleqCommands.size(); i++)
@@ -417,6 +421,8 @@ string convertAll(string asmcode)
 			preprocessDeclarations(trimmedCommand); 
 	}
 
+	datadeclOffset = startDataSegment;
+
     for (int i = 0; i < subleqCommands.size(); i++)
 	{
 		string currentCommand = subleqCommands.at(i);
@@ -424,6 +430,10 @@ string convertAll(string asmcode)
 
 	    string convertedCommand = convertSubleqCommand(trimmedCommand); 
 		instrOffsets.push_back(instrOffset);
+
+		if (instrOffset%30==0)
+			code+=convert_to_binary_string(std::to_string(instrOffset)) + ":\n";
+
 		convertedCommands.push_back(convertedCommand);
 		if (convertedCommand.length()>0)
 		  code+=convertedCommand + '\n';
