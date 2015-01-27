@@ -341,7 +341,7 @@ string convertSubleqCommand(string & command)
 	{
 		string labName = command.substr(0,command.length()-1);
 		//return command;
-		return convert_to_binary_string(std::to_string(labelAddresses[labName])) + ":";
+		return convert_to_binary_string(std::to_string(labelAddresses[labName])) + labelSign;
 	}
 
 	//if (is_number(command)) // numeric constant like 0
@@ -351,18 +351,37 @@ string convertSubleqCommand(string & command)
 	   operands.push_back(part);
 	instrSizes.push_back(operands.size());
 	result = convertRest(operands);
-
-	return "\t" + result + commandSeparator;
+	return result;
+	//return "\t" + result + commandSeparator;
 }
 
+string padCommand (string& command)
+{
+	istringstream is(command);
+	string part;
+	vector<string> operands;
 
+	if (command.find(labelSign)!=std::string::npos)  //return label without any change
+	{
+		cout << "Label without changes " << command << endl;
+		return command;
+	}
+	while (getline(is, part, operandSeparator))
+	   operands.push_back(part);
+	if (operands.size()==3)
+		cout << "Not Correcting: " << command << endl;
+	return command;
+}
 
 string convertAll(string asmcode)
 {
 	vector<string> lines = splitIntoLines(asmcode);
-	vector<string> subleqCommands;
+	vector<string> subleqCommands,convertedCommands,paddedCommands;
 	string code;
-	vector<string> convertedCommands;
+
+	subleqCommands.clear();
+	convertedCommands.clear();
+	paddedCommands.clear();
 
     labelAddresses.clear();
 	labelValues.clear();
@@ -433,17 +452,26 @@ string convertAll(string asmcode)
 
     for (int i = 0; i < subleqCommands.size(); i++)
 	{
-		string currentCommand = subleqCommands.at(i);
-		string trimmedCommand = trim(currentCommand);
+		string trimmedCommand = trim(subleqCommands.at(i));
+		convertedCommands.push_back(convertSubleqCommand(trimmedCommand));
+	}
 
-	    string convertedCommand = convertSubleqCommand(trimmedCommand); 
+	for (int i = 0; i < convertedCommands.size(); i++)
+	{
+		string trimmedCommand = trim(convertedCommands.at(i));
+
+	    string paddedCommand = padCommand(trimmedCommand); 
 
 		if (instrOffset%30==0)
 			code+=convert_to_binary_string(std::to_string(instrOffset)) + ":\n";
 
-		convertedCommands.push_back(convertedCommand);
-		if (convertedCommand.length()>0)
-		  code+=convertedCommand + '\n';
+		paddedCommands.push_back(paddedCommand);
+		
+		if (paddedCommand.find(labelSign)==std::string::npos)
+			paddedCommand = '\t' + paddedCommand + commandSeparator;
+
+		if (paddedCommand.length()>0)
+		  code+=paddedCommand + '\n';
 	}
 	
 	//code = code + numlabel_decl + '\n';
@@ -463,15 +491,15 @@ int main(int ac, char *av[])
    }
    
    string subleq = compileIntoSubleq(av[1]);
-   string converted = convertAll(subleq);
+   string padded = convertAll(subleq);
 
    if (ac==3)
    {
 	   std::ofstream of(av[2]);
-	   of<<converted;
+	   of<<padded;
    }
    else
-	   cout<<converted;
+	   cout<<padded;
 
    system("pause");
    return 0;
