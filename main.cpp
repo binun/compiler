@@ -15,9 +15,20 @@
 #include <cctype>
 #include <locale>
 
+#define STEP_IN_BYTES 1
+#define INSTR_SIZE 3
+
 using namespace std;
 typedef std::map<int,int> intmap;
 typedef std::map<string,int> strmap;
+typedef struct tagSecretShare {
+	int currInstr;
+	int Op1;
+	int Op2;
+	int Op3;
+	int nextInstr;
+} SecretShare;
+
 
 //TASK - Scroll to end, process data definitions, then get back to the compiler to use variable declarations (
 
@@ -30,12 +41,9 @@ char operandSeparator = ' ';
 char dataStart = '.';
 char labelSign = ':';
 
-int STEP_IN_BYTES = 1;
 int loadStart=0;
-int instrOffset=0;
-int datadeclOffset=0;
+int PC=0;
 int nextAddress = 0;
-int startDataSegment;
 bool skip_leading_zeroes = false;
 
 string Nextcell = string("Next"),  
@@ -43,15 +51,22 @@ string Nextcell = string("Next"),
 	   Subleq_Instr_Prefix = string("");
 
 strmap labelAddresses;
-strmap labelValues;
+intmap labelValues;
 intmap memoryRefs;
 string numlabel_decl;
-string dataDeclString;
-vector<int> instrSizes;
+
+vector<SecretShare> secret_shares;
 
 //  --------------------------  Utilities ------------------------------------------------------------
 
-bool is_number(string& s) // Negative numbers to be counted!!
+string tostring (int num)
+{
+	ostringstream st;
+	st << num;
+	return st.str();
+}
+
+bool is_number(string s) // Negative numbers to be counted!!
 {
     std::string::const_iterator it = s.begin();
 	char start_char = *it;
@@ -61,7 +76,7 @@ bool is_number(string& s) // Negative numbers to be counted!!
     return !s.empty() && it == s.end();
 }
 
-bool is_word(string& s) // Negative numbers to be counted!!
+bool is_word(string s) // Negative numbers to be counted!!
 {
     std::string::const_iterator it = s.begin();
 	char start_char = *it;
@@ -75,20 +90,31 @@ bool is_word(string& s) // Negative numbers to be counted!!
     return !s.empty() && it == s.end() && hasChar;
 }
 
-int eval(string& expr)
+int eval(string expr)
 {
 	if (is_number(expr))
 		return atoi(expr.c_str());
+
 	if (is_word(expr))
 	{
-		if (labelValues.find(expr)!=labelValues.end()) //we have it in values
-			return labelValues[expr];
-		else // definition not found
-			return -1; //dummy
+		if (labelAddresses.find(expr)!=labelAddresses.end()) //found var
+		{
+			int addr = labelAddresses[expr];
+			return labelValues[addr];
+		}
+		else 
+			return -1; 
 	}
 
 	if (expr.at(0)=='-')
-		return eval(expr.substr(1));
+		return -eval(expr.substr(1));
+	
+	if (expr.at(0)=='(')
+	{
+		string content = expr.substr(1,expr.length()-1);
+		return eval(content);
+	}
+
     return 0;
 }
 
@@ -122,23 +148,23 @@ string convert_to_binary_string(string arg)
 }
 
 // trim from start
-static inline std::string &ltrim(std::string &s) {
+static inline std::string ltrim(std::string s) {
         s.erase(s.begin(), std::find_if(s.begin(), s.end(), std::not1(std::ptr_fun<int, int>(std::isspace))));
         return s;
 }
 
 // trim from end
-static inline std::string &rtrim(std::string &s) {
+static inline std::string rtrim(std::string s) {
         s.erase(std::find_if(s.rbegin(), s.rend(), std::not1(std::ptr_fun<int, int>(std::isspace))).base(), s.end());
         return s;
 }
 
 // trim from both ends
-static inline std::string &trim(std::string &s) {
+static inline std::string trim(std::string s) {
         return ltrim(rtrim(s));
 }
 
-string replaceAll(string subject, const std::string& search, const std::string& replace) 
+string replaceAll(string subject, const std::string search, const std::string replace) 
 {
     size_t pos = 0;
     while((pos = subject.find(search, pos)) != std::string::npos) 
@@ -151,11 +177,11 @@ string replaceAll(string subject, const std::string& search, const std::string& 
 
 
 
-string setIP(string& subject, int nextAddr)
+string setIP(string subject, int nextAddr)
 {
 	string res,absolute;
 
-	if (is_number(subject))
+	if (is_number(subject))  // one number instructio ns like "0" 
 	{
 		res=convert_to_binary_string(subject);
 		absolute = res;
@@ -173,21 +199,12 @@ string setIP(string& subject, int nextAddr)
 			getline(is, offset, '+'); //constant
 			res= label + "+" + convert_to_binary_string(offset);
             int rightEnd = atoi(offset.c_str());
-			absolute = convert_to_binary_string(std::to_string(nextAddr + rightEnd)); 
-			auto it = memoryRefs.find(nextAddr);
-            
-			if (it!=memoryRefs.end()) // zone found		
-			{
-				if (rightEnd > it->second)
-					it->second = rightEnd;
-			}	
-			else
-			   memoryRefs[nextAddr] = rightEnd;
+			absolute = convert_to_binary_string(tostring(nextAddr + rightEnd)); 
 		}
 		else //a label
 		{
 			if (labelAddresses.find(res)!=labelAddresses.end())
-			  absolute = convert_to_binary_string(std::to_string(labelAddresses[res]));
+			  absolute = convert_to_binary_string(tostring(labelAddresses[res]));
 			else
 			  absolute=res;
 		}
@@ -196,7 +213,7 @@ string setIP(string& subject, int nextAddr)
 	return absolute;
 }
 
-vector<string> splitIntoLines(string &asmcode)
+vector<string> splitIntoLines(string asmcode)
 {
     stringstream stream(asmcode);
     vector<std::string> res;
@@ -212,8 +229,9 @@ vector<string> splitIntoLines(string &asmcode)
     return res;
 }
 
-void preprocessDeclarations(string & decl)  ///determine actual addresses for 
+void handleDataDecl(string decl)  ///determine actual addresses for 
 {
+	static bool nextDeclared=0;
 	if (decl.find(Subleq_Nextcell)==std::string::npos) // no ? in the string
 	{
 		string declaration;
@@ -225,37 +243,58 @@ void preprocessDeclarations(string & decl)  ///determine actual addresses for
 		   string varname,initexpr;
 		   istringstream dp(declaration);
 		   getline(dp,varname,labelSign); // varName
-		   labelAddresses[varname] = datadeclOffset;
+		   
 		   if (!is_number(varname))
 		   {
-		     getline(dp,initexpr,labelSign); // initializer            
+		     getline(dp,initexpr,labelSign); // initializer   
+			 labelAddresses[varname] = PC;
 		   }
-		   else //varname is a number - no subsequent parsing to get an initializer
+
+           labelValues[PC] = eval(initexpr);
+
+		   PC = PC+STEP_IN_BYTES;
+	     }
+	}
+
+	else 
+	{
+		if (!nextDeclared)
 		   {
-			   initexpr = varname;
+			 labelAddresses[Nextcell] = PC;
+			 labelValues[PC] = PC + 1; 
+			 nextDeclared = 1;
 		   }
-
-           labelValues[varname] = eval(initexpr);
-
-		 datadeclOffset = datadeclOffset+STEP_IN_BYTES;
-	   }
+		PC = PC+STEP_IN_BYTES;
 	}
 }
 
 
-string parseDataDecl(string & decl)
+string parseData(string decl)
 {
-	string data = "";
-	static bool nextDeclared=0;
+	string result = "", dataName="";
+	int dataAddress,dataValue;
+	SecretShare ss;
+	
+
 	if (decl.find(Subleq_Nextcell)!=std::string::npos) // it IS .?		
 	{
-		   if (!nextDeclared)
-		   {
-			 data = data + Nextcell + labelSign + "0";
-			 nextDeclared = 1;
-		   }
-		   else
-			 data = std::string("");
+	    dataName = Nextcell;
+		dataAddress = labelAddresses[dataName];
+		dataValue = labelValues[dataAddress];
+
+		result = result + 
+		  convert_to_binary_string(tostring(dataAddress)) +
+		  labelSign + 
+		  convert_to_binary_string(tostring(dataValue)) + 
+		  "(#"+dataName + ") ";
+
+        ss.currInstr = PC; 
+	    ss.nextInstr = PC + STEP_IN_BYTES;
+		ss.Op1 = dataAddress;
+		ss.Op2 = dataAddress;
+		ss.Op3 = dataValue;
+		secret_shares.push_back(ss);
+        PC = PC + STEP_IN_BYTES;
 	}
 	else
 	{
@@ -263,70 +302,83 @@ string parseDataDecl(string & decl)
 	  string declaration;
 	  string declarations = trim(replaceAll(decl, ".",""));
       istringstream parser(declarations);
-	  if (startDataSegment>0)
-	  {
-		  data = data + "DATA_START:" + convert_to_binary_string(std::to_string(startDataSegment)) + "\n";
-		  startDataSegment=0;
-	  }
+	 
 	  while (getline(parser, declaration, operandSeparator))
 	   {
-		 string varname,initexpr;
+		 dataName = "";
 		 istringstream dp(declaration);
-		 getline(dp,varname,labelSign); // varName
-		 if (is_number(varname))        // no assignments after a constant
-			 data = data + convert_to_binary_string(varname) + " ";
+		 getline(dp,dataName,labelSign); 
+		 
+		 if (is_number(dataName))  // no assignments after a constant
+			 result = result + convert_to_binary_string(dataName) + " ";
 		 else
 		   {
-		     getline(dp,initexpr,labelSign); // initializer
-			 data = data + varname+labelSign;
-             data = data + convert_to_binary_string(std::to_string(eval(initexpr)));
-		 }
-		 data = data + "(#"+convert_to_binary_string(std::to_string(datadeclOffset)) + ") ";
-		 datadeclOffset = datadeclOffset+STEP_IN_BYTES;
+			 dataAddress = labelAddresses[dataName];
+			 dataValue = labelValues[dataAddress];
+		     result = result + convert_to_binary_string(tostring(dataAddress)) + labelSign + convert_to_binary_string(tostring(dataValue));		 
+             result = result + "(#"+dataName + ") ";
+
+			 ss.currInstr = PC; 
+	         ss.nextInstr = PC + STEP_IN_BYTES;
+		     ss.Op1 = dataAddress;
+		     ss.Op2 = dataAddress;
+		     ss.Op3 = dataValue;
+		     secret_shares.push_back(ss);
+		   }
+		 PC = PC + STEP_IN_BYTES;
 	   }
 	}
-	dataDeclString = dataDeclString  + " " + data;
-	return data;
+
+	return result;
 }
 
 // --------------------------------- End of utilities -----------------------------------------
 
 
-string convertRest(vector<string> & operands)
+string convertRest(vector<string> operands)
 {
 	string op1,op2,op3,result;
+	SecretShare ss;
+	ss.currInstr = PC;
+	ss.nextInstr = PC + STEP_IN_BYTES*INSTR_SIZE;
 
-    nextAddress = instrOffset+STEP_IN_BYTES;
+    nextAddress = PC+STEP_IN_BYTES;
     op1 = setIP(operands.at(0),nextAddress); // first operand always exists
+	ss.Op1 = (int)strtol(op1.c_str(), NULL, 2);
 
 	if (operands.size()==1)      
 	{    
 		op2 = op1;                               // if only one operand op1 then op2:=op1; label:=next; Note that constants are not used in one-op instructions
-		op3 = convert_to_binary_string(std::to_string(nextAddress));
-		result = Subleq_Instr_Prefix + op1;
+		op3 = convert_to_binary_string(tostring(nextAddress));
+		ss.Op2 = (int)strtol(op2.c_str(), NULL, 2);
+		ss.Op3 = (int)strtol(op3.c_str(), NULL, 2);
+		//result = Subleq_Instr_Prefix + op1;
 	}
 	else if (operands.size()==2)//two operands: label:=next
       {
-        nextAddress = instrOffset+2*STEP_IN_BYTES;
+        nextAddress = PC+2*STEP_IN_BYTES;
 		op2=setIP(operands.at(1),nextAddress);
-		op3 = convert_to_binary_string(std::to_string(nextAddress));
-		result = Subleq_Instr_Prefix + op1 + " " + op2;
+		op3 = convert_to_binary_string(tostring(nextAddress));
+		ss.Op2 = (int)strtol(op2.c_str(), NULL, 2);
+		ss.Op3 = (int)strtol(op3.c_str(), NULL, 2);
+		//result = Subleq_Instr_Prefix + op1 + " " + op2;
 	  }
 	else 
 	  {
-		nextAddress = instrOffset+2*STEP_IN_BYTES;
+		nextAddress = PC+2*STEP_IN_BYTES;
 		op2=setIP(operands.at(1),nextAddress);
-		nextAddress = instrOffset+3*STEP_IN_BYTES;
+		nextAddress = PC+3*STEP_IN_BYTES;
 		op3=setIP(operands.at(2),nextAddress);
-		result = Subleq_Instr_Prefix + op1 + " " + op2 + " " + op3; 
+		ss.Op2 = (int)strtol(op2.c_str(), NULL, 2);
+		ss.Op3 = (int)strtol(op3.c_str(), NULL, 2);
+		//result = Subleq_Instr_Prefix + op1 + " " + op2 + " " + op3; 
 	  }
-	instrOffset = instrOffset + operands.size()*STEP_IN_BYTES;
-	//result = Subleq_Instr_Prefix + op1 + " " + op2 + " " + op3; //subleq op1 op2 label
-
+	result = Subleq_Instr_Prefix + op1 + " " + op2 + " " + op3; //subleq op1 op2 label
+	secret_shares.push_back(ss);
 	return result;
 }
 
-string convertSubleqCommand(string & command)
+string convertSubleqCommand(string command)
 {
 	char lastChar = *command.rbegin();
 	char firstChar = ltrim(command).at(0);
@@ -335,43 +387,22 @@ string convertSubleqCommand(string & command)
 	istringstream is(command);
 
 	if (firstChar==dataStart)
-		return parseDataDecl(command);// This line . Z:-1 Z0:0 t1:0 t2:0 x:30 y:20  - Add binary declarations
+		return parseData(command);  // This line . Z:-1 Z0:0 t1:0 t2:0 x:30 y:20  - advance PC within
 
 	if (lastChar==labelSign)  //label
 	{
 		string labName = command.substr(0,command.length()-1);
-		//return command;
-		return convert_to_binary_string(std::to_string(labelAddresses[labName])) + labelSign;
+		PC  = PC + STEP_IN_BYTES; // each label occupies STEP_IN_BYTES 
+		return convert_to_binary_string(tostring(labelAddresses[labName])) + labelSign;
 	}
-
-	//if (is_number(command)) // numeric constant like 0
-		//return command;
 
     while (getline(is, part, operandSeparator))
 	   operands.push_back(part);
-	instrSizes.push_back(operands.size());
 	result = convertRest(operands);
+	PC = PC + STEP_IN_BYTES*INSTR_SIZE;
 	return result;
-	//return "\t" + result + commandSeparator;
 }
 
-string padCommand (string& command)
-{
-	istringstream is(command);
-	string part;
-	vector<string> operands;
-
-	if (command.find(labelSign)!=std::string::npos)  //return label without any change
-	{
-		cout << "Label without changes " << command << endl;
-		return command;
-	}
-	while (getline(is, part, operandSeparator))
-	   operands.push_back(part);
-	if (operands.size()==3)
-		cout << "Not Correcting: " << command << endl;
-	return command;
-}
 
 string convertAll(string asmcode)
 {
@@ -385,13 +416,7 @@ string convertAll(string asmcode)
 
     labelAddresses.clear();
 	labelValues.clear();
-	memoryRefs.clear();
 	numlabel_decl =". ";
-	instrOffset = 0;
-	datadeclOffset=0;
-	nextAddress = 0;
-	dataDeclString = ". ";
-	startDataSegment=0;
 
 	for (int i = 0; i < lines.size(); i++)
 	{
@@ -405,7 +430,8 @@ string convertAll(string asmcode)
 	subleqCommands.erase(subleqCommands.begin());
 	subleqCommands.insert(subleqCommands.begin(), std::string("0 0 sqmain"));
 
-	// Compute the code portion for setting data offset
+	// First pass: resolving data and label declarations
+	PC=0;
 	for (int i = 0; i < subleqCommands.size(); i++)
 	{		
 		string trimmedCommand = trim(subleqCommands.at(i));
@@ -414,70 +440,40 @@ string convertAll(string asmcode)
 		char lastChar = *trimmedCommand.rbegin();
         char firstChar = ltrim(trimmedCommand).at(0);
 
-        if (firstChar==dataStart) 
-			continue;
-
-		if (lastChar==labelSign)
+        if (firstChar==dataStart) // data declaration - starts with .
 		{
-			string labName = trimmedCommand.substr(0,trimmedCommand.length()-1);
-			labelAddresses[labName] = datadeclOffset;
+			handleDataDecl(trimmedCommand); // PC is advanced within the function
 		}
 
-        istringstream is(trimmedCommand);
-        vector<string> operands;
-        while (getline(is, part, operandSeparator))
-	        operands.push_back(part);
-		datadeclOffset = datadeclOffset + operands.size()*STEP_IN_BYTES;
+		else if (lastChar==labelSign) // label declaration ends with :
+		{
+			string labName = trimmedCommand.substr(0,trimmedCommand.length()-1);
+			labelAddresses[labName] = PC;
+            PC = PC + STEP_IN_BYTES;
+		}
+		else  //just an ordinary instruction, do not process, just advance PC so far
+			PC = PC + STEP_IN_BYTES*INSTR_SIZE;
 	}
 
-	startDataSegment = datadeclOffset;
 
-	for (int i = 0; i < subleqCommands.size(); i++)
-	{		
-		string trimmedCommand = trim(subleqCommands.at(i));
-		
-        char firstChar = ltrim(trimmedCommand).at(0);
-        if (firstChar==dataStart) 
-			preprocessDeclarations(trimmedCommand); 
-	}
-
-	datadeclOffset = startDataSegment;
-
-    for( auto it = memoryRefs.begin(); it != memoryRefs.end(); ++it )
-	{
-		int key = it->first;
-		int& value = it->second;
-		//cout << "First:" << key << " Second:" << value << endl;
-	}
-
+	// Second pass: process instructions, Next + ... offsets
+	PC=0;
     for (int i = 0; i < subleqCommands.size(); i++)
 	{
 		string trimmedCommand = trim(subleqCommands.at(i));
-		convertedCommands.push_back(convertSubleqCommand(trimmedCommand));
+		string convertedCommand = convertSubleqCommand(trimmedCommand);
+		convertedCommands.push_back(convertedCommand);
+
+        if (PC % 30==0)
+			code+=convert_to_binary_string(tostring(PC)) + ":\n";
+
+        if (*convertedCommand.rbegin()!=labelSign)
+			convertedCommand = '\t' + convertedCommand + commandSeparator;
+
+		if (convertedCommand.length()>0)
+		  code+=convertedCommand + '\n';
 	}
 
-	for (int i = 0; i < convertedCommands.size(); i++)
-	{
-		string trimmedCommand = trim(convertedCommands.at(i));
-
-	    string paddedCommand = padCommand(trimmedCommand); 
-
-		if (instrOffset%30==0)
-			code+=convert_to_binary_string(std::to_string(instrOffset)) + ":\n";
-
-		paddedCommands.push_back(paddedCommand);
-		
-		if (paddedCommand.find(labelSign)==std::string::npos)
-			paddedCommand = '\t' + paddedCommand + commandSeparator;
-
-		if (paddedCommand.length()>0)
-		  code+=paddedCommand + '\n';
-	}
-	
-	//code = code + numlabel_decl + '\n';
-	//code = code + dataDeclString + '\n';
-	//instrOffset = instrOffset+STEP_IN_BYTES; //one more command
-	//datadeclOffset = instrOffset;
 	return code;
 }
 
