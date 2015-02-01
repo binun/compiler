@@ -21,6 +21,7 @@
 using namespace std;
 typedef std::map<int,int> intmap;
 typedef std::map<string,int> strmap;
+
 typedef struct tagSecretShare {
 	int currInstr;
 	int Op1;
@@ -43,7 +44,6 @@ char labelSign = ':';
 
 int loadStart=0;
 int PC=0;
-int nextAddress = 0;
 bool skip_leading_zeroes = false;
 
 string Nextcell = string("Next"),  
@@ -122,8 +122,6 @@ string convert_to_binary_string(string arg)
 {
 	string str;
     int value = atoi(arg.c_str());
-	//if (!value)
-		//return string("0");
 
     bool found_first_one = false;
     int bits = STEP_IN_BYTES*8;
@@ -177,13 +175,14 @@ string replaceAll(string subject, const std::string search, const std::string re
 
 
 
-string setIP(string subject, int nextAddr)
+string setIP(string subject, int nextAddr, int *intVal)
 {
 	string res,absolute;
 
 	if (is_number(subject))  // one number instructio ns like "0" 
 	{
 		res=convert_to_binary_string(subject);
+		*intVal = atoi(subject.c_str()); 
 		absolute = res;
 	}
 
@@ -199,14 +198,21 @@ string setIP(string subject, int nextAddr)
 			getline(is, offset, '+'); //constant
 			res= label + "+" + convert_to_binary_string(offset);
             int rightEnd = atoi(offset.c_str());
+			*intVal = nextAddr + rightEnd;
 			absolute = convert_to_binary_string(tostring(nextAddr + rightEnd)); 
 		}
 		else //a label
 		{
 			if (labelAddresses.find(res)!=labelAddresses.end())
+			{
 			  absolute = convert_to_binary_string(tostring(labelAddresses[res]));
-			else
+			  *intVal = labelAddresses[res];
+			}
+			else 
+			{
 			  absolute=res;
+			  *intVal = 0;
+			}
 		}
 	}
 	//return res;
@@ -341,36 +347,35 @@ string convertRest(vector<string> operands)
 	SecretShare ss;
 	ss.currInstr = PC;
 	ss.nextInstr = PC + STEP_IN_BYTES*INSTR_SIZE;
-
-    nextAddress = PC+STEP_IN_BYTES;
-    op1 = setIP(operands.at(0),nextAddress); // first operand always exists
-	ss.Op1 = (int)strtol(op1.c_str(), NULL, 2);
+	op1 = setIP(operands.at(0),PC+STEP_IN_BYTES, &(ss.Op1)); // first operand always exists
+	//ss.Op1 = (int)strtol(op1.PC+STEP_IN_BYTESc_str(), NULL, 2);
 
 	if (operands.size()==1)      
 	{    
-		op2 = op1;                               // if only one operand op1 then op2:=op1; label:=next; Note that constants are not used in one-op instructions
-		op3 = convert_to_binary_string(tostring(nextAddress));
-		ss.Op2 = (int)strtol(op2.c_str(), NULL, 2);
-		ss.Op3 = (int)strtol(op3.c_str(), NULL, 2);
+		op2 = op1;  
+		// if only one operand op1 then op2:=op1; label:=next; Note that constants are not used in one-op instructions
+		op3 = convert_to_binary_string(tostring(ss.nextInstr));
+		ss.Op2 = ss.Op1;
+		ss.Op3 = ss.nextInstr;
+		//ss.Op2 = (int)strtol(op2.c_str(), NULL, 2);
+		//ss.Op3 = (int)strtol(op3.c_str(), NULL, 2);
 		//result = Subleq_Instr_Prefix + op1;
 	}
 	else if (operands.size()==2)//two operands: label:=next
       {
-        nextAddress = PC+2*STEP_IN_BYTES;
-		op2=setIP(operands.at(1),nextAddress);
-		op3 = convert_to_binary_string(tostring(nextAddress));
-		ss.Op2 = (int)strtol(op2.c_str(), NULL, 2);
-		ss.Op3 = (int)strtol(op3.c_str(), NULL, 2);
+		op2=setIP(operands.at(1),PC+2*STEP_IN_BYTES,&(ss.Op2));
+		op3 = convert_to_binary_string(tostring(ss.nextInstr));
+		ss.Op3 = ss.nextInstr;
+		//ss.Op2 = (int)strtol(op2.c_str(), NULL, 2);
+		//ss.Op3 = (int)strtol(op3.c_str(), NULL, 2);
 		//result = Subleq_Instr_Prefix + op1 + " " + op2;
 	  }
 	else 
 	  {
-		nextAddress = PC+2*STEP_IN_BYTES;
-		op2=setIP(operands.at(1),nextAddress);
-		nextAddress = PC+3*STEP_IN_BYTES;
-		op3=setIP(operands.at(2),nextAddress);
-		ss.Op2 = (int)strtol(op2.c_str(), NULL, 2);
-		ss.Op3 = (int)strtol(op3.c_str(), NULL, 2);
+		op2=setIP(operands.at(1),PC+2*STEP_IN_BYTES,&(ss.Op2));
+		op3=setIP(operands.at(2),PC+3*STEP_IN_BYTES,&(ss.Op3));
+		//ss.Op2 = (int)strtol(op2.c_str(), NULL, 2);
+		//ss.Op3 = (int)strtol(op3.c_str(), NULL, 2);
 		//result = Subleq_Instr_Prefix + op1 + " " + op2 + " " + op3; 
 	  }
 	result = Subleq_Instr_Prefix + op1 + " " + op2 + " " + op3; //subleq op1 op2 label
@@ -392,7 +397,7 @@ string convertSubleqCommand(string command)
 	if (lastChar==labelSign)  //label
 	{
 		string labName = command.substr(0,command.length()-1);
-		PC  = PC + STEP_IN_BYTES; // each label occupies STEP_IN_BYTES 
+		//PC  = PC + STEP_IN_BYTES; // Labels are not expected to occupy space... 
 		return convert_to_binary_string(tostring(labelAddresses[labName])) + labelSign;
 	}
 
