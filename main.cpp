@@ -281,7 +281,6 @@ string parseData(string decl)
 	int dataAddress,dataValue;
 	SecretShare ss;
 	
-
 	if (decl.find(Subleq_Nextcell)!=std::string::npos) // it IS .?		
 	{
 	    dataName = Nextcell;
@@ -296,7 +295,7 @@ string parseData(string decl)
 
         ss.currInstr = PC; 
 	    ss.nextInstr = PC + STEP_IN_BYTES;
-		ss.Op1 = dataAddress;
+		ss.Op1 = -1;
 		ss.Op2 = dataAddress;
 		ss.Op3 = dataValue;
 		secret_shares.push_back(ss);
@@ -316,7 +315,15 @@ string parseData(string decl)
 		 getline(dp,dataName,labelSign); 
 		 
 		 if (is_number(dataName))  // no assignments after a constant
+		 {
 			 result = result + convert_to_binary_string(dataName) + " ";
+			 ss.currInstr = PC; 
+	         ss.nextInstr = PC + STEP_IN_BYTES;
+		     ss.Op1 = -1;
+		     ss.Op2 = PC;
+			 ss.Op3 = atoi(dataName.c_str());
+		     secret_shares.push_back(ss);		 
+		 }
 		 else
 		   {
 			 dataAddress = labelAddresses[dataName];
@@ -326,7 +333,7 @@ string parseData(string decl)
 
 			 ss.currInstr = PC; 
 	         ss.nextInstr = PC + STEP_IN_BYTES;
-		     ss.Op1 = dataAddress;
+		     ss.Op1 = -1;
 		     ss.Op2 = dataAddress;
 		     ss.Op3 = dataValue;
 		     secret_shares.push_back(ss);
@@ -397,7 +404,7 @@ string convertSubleqCommand(string command)
 	if (lastChar==labelSign)  //label
 	{
 		string labName = command.substr(0,command.length()-1);
-		//PC  = PC + STEP_IN_BYTES; // Labels are not expected to occupy space... 
+		PC  = PC + STEP_IN_BYTES; // Labels are not expected to occupy space... 
 		return convert_to_binary_string(tostring(labelAddresses[labName])) + labelSign;
 	}
 
