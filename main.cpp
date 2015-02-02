@@ -36,7 +36,7 @@ typedef struct tagSecretShare {
 // -----------------------     Global variables ------------------------------------------
 
 extern string compileIntoSubleq(char*);
-
+std::ofstream of;
 char commandSeparator = ';';
 char operandSeparator = ' ';
 char dataStart = '.';
@@ -355,35 +355,25 @@ string convertRest(vector<string> operands)
 	ss.currInstr = PC;
 	ss.nextInstr = PC + STEP_IN_BYTES*INSTR_SIZE;
 	op1 = setIP(operands.at(0),PC+STEP_IN_BYTES, &(ss.Op1)); // first operand always exists
-	//ss.Op1 = (int)strtol(op1.PC+STEP_IN_BYTESc_str(), NULL, 2);
 
-	if (operands.size()==1)      
-	{    
-		op2 = op1;  
-		// if only one operand op1 then op2:=op1; label:=next; Note that constants are not used in one-op instructions
-		op3 = convert_to_binary_string(tostring(ss.nextInstr));
-		ss.Op2 = ss.Op1;
-		ss.Op3 = ss.nextInstr;
-		//ss.Op2 = (int)strtol(op2.c_str(), NULL, 2);
-		//ss.Op3 = (int)strtol(op3.c_str(), NULL, 2);
-		//result = Subleq_Instr_Prefix + op1;
+	if (operands.size()==1) 
+	{
+		   op2 = op1;  
+	   	   // if only one operand op1 then op2:=op1; label:=next; Note that constants are not used in one-op instructions
+		   op3 = convert_to_binary_string(tostring(ss.nextInstr));
+		   ss.Op2 = ss.Op1;
+		   ss.Op3 = ss.nextInstr;
 	}
 	else if (operands.size()==2)//two operands: label:=next
       {
 		op2=setIP(operands.at(1),PC+2*STEP_IN_BYTES,&(ss.Op2));
 		op3 = convert_to_binary_string(tostring(ss.nextInstr));
-		ss.Op3 = ss.nextInstr;
-		//ss.Op2 = (int)strtol(op2.c_str(), NULL, 2);
-		//ss.Op3 = (int)strtol(op3.c_str(), NULL, 2);
-		//result = Subleq_Instr_Prefix + op1 + " " + op2;
+		ss.Op3 = ss.nextInstr;		
 	  }
 	else 
 	  {
 		op2=setIP(operands.at(1),PC+2*STEP_IN_BYTES,&(ss.Op2));
-		op3=setIP(operands.at(2),PC+3*STEP_IN_BYTES,&(ss.Op3));
-		//ss.Op2 = (int)strtol(op2.c_str(), NULL, 2);
-		//ss.Op3 = (int)strtol(op3.c_str(), NULL, 2);
-		//result = Subleq_Instr_Prefix + op1 + " " + op2 + " " + op3; 
+		op3=setIP(operands.at(2),PC+3*STEP_IN_BYTES,&(ss.Op3));	
 	  }
 	result = Subleq_Instr_Prefix + op1 + " " + op2 + " " + op3; //subleq op1 op2 label
 	secret_shares.push_back(ss);
@@ -410,6 +400,20 @@ string convertSubleqCommand(string command)
 
     while (getline(is, part, operandSeparator))
 	   operands.push_back(part);
+
+	if (operands.size()==1 && is_number(operands.at(0)))   // treat the instruction "0" as just data ?
+	{
+		SecretShare ss;
+		ss.currInstr = PC; 
+	    ss.nextInstr = PC + STEP_IN_BYTES;
+		ss.Op1 = -1;
+		ss.Op2 = PC;
+	    ss.Op3 = atoi(operands.at(0).c_str());
+		secret_shares.push_back(ss);	
+        PC  = PC + STEP_IN_BYTES;
+		return convert_to_binary_string(operands.at(0));
+	}
+
 	result = convertRest(operands);
 	PC = PC + STEP_IN_BYTES*INSTR_SIZE;
 	return result;
@@ -484,31 +488,35 @@ string convertAll(string asmcode)
 
 		if (convertedCommand.length()>0)
 		  code+=convertedCommand + '\n';
-	}
 
+		of<<convertedCommand << " # " << trimmedCommand << endl;  
+	}
+	
 	return code;
 }
 
 int main(int ac, char *av[])
 {
    int i = 0;
-   if (ac<2)
+   if (ac!=3)
    {
-	   cout << "At least input file is needed";
+	   cout << "At least input and output files are needed";
 	   return 0;
    }
-   
+
+   of.open(av[2],std::ofstream::out | std::ofstream::trunc);
    string subleq = compileIntoSubleq(av[1]);
    string padded = convertAll(subleq);
+   of.close();
+   system("pause");
 
-   if (ac==3)
+   /*if (ac==3)
    {
 	   std::ofstream of(av[2]);
 	   of<<padded;
    }
    else
 	   cout<<padded;
-
-   system("pause");
+   */
    return 0;
 }

@@ -1,9 +1,8 @@
 int main(void)
 {
-	int x;
-	x=3;
+	int x=0;
 	if (x<=0)
-		x=1;
+		x=2;
 	else
-		x=-1;
+		x=3;
 }
