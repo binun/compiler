@@ -223,6 +223,28 @@ void sqemulate(vector<string> &vtext, bool big);
 } // emulator
 
 
+void interpret(vector<string> code)
+{
+	 emulator::sqemulate(code, 0);
+}
+
+string get_in_binary(char*filename)
+{
+   string arg = std::string(filename);
+   driver::hsq_bucket_nm.push_back(arg);
+   driver::hsq_bucket_text.push_back(driver::loadfile(arg));
+   string myasq = hsqcomp::hsqcompile(driver::hsq_bucket_nm,driver::hsq_bucket_text);
+   if( myasq!="" )
+	{
+	  driver::asq_bucket_nm.push_back(".");
+	  driver::asq_bucket_text.push_back(myasq);
+	}
+
+   string mysq = asqcomp::asqcompile(driver::asq_bucket_text);
+
+   return mysq;
+}
+
 string compileIntoSubleq(char*filename)
 {
    string arg = std::string(filename);
@@ -232,29 +254,20 @@ string compileIntoSubleq(char*filename)
    return myasq;
 }
 
-/** 2.3 main() **/
-//int main(int ac, char *av[])
-//{
-  // int i = 0;
-   //string arg = std::string(av[1]);
-   //driver::hsq_bucket_nm.push_back(arg);
-   //driver::hsq_bucket_text.push_back(driver::loadfile(arg));
-   //string myasq = hsqcomp::hsqcompile(driver::hsq_bucket_nm,driver::hsq_bucket_text);
-	//for( size_t i=0; i<hsq_bucket_nm.size(); i++ )
-		//hsq_bucket_text.push_back(loadfile(hsq_bucket_nm[i]));
-  //try{ return driver::tmain(ac,av); }
-  //catch(string e)
-  //{
-//	std::cerr<<"Error: "<<e<<'\n';
-//	return 1;
- // }catch(...)
-  //{
-//	std::cerr<<"Unknown exception"<<'\n';
-//	return 1;
- // }
-	//return 0;
-//}
-
+/*int main(int ac, char *av[])
+{
+  try{ return driver::tmain(ac,av); }
+  catch(string e)
+  {
+	std::cerr<<"Error: "<<e<<'\n';
+	return 1;
+  }catch(...)
+  {
+	std::cerr<<"Unknown exception"<<'\n';
+	return 1;
+  }
+}*/
+	
 int driver::tmain(int ac, char *av[])
 {
 	if( ac < 2 ){ usage(); return 0; }
@@ -265,7 +278,7 @@ int driver::tmain(int ac, char *av[])
 
 	if( action==3 )
 	{
-		string myitr = hsqcomp::itrcompile(hsq_bucket_nm,hsq_bucket_text);
+		string myitr = hsqcomp::itrcompile(hsq_bucket_nm,hsq_bucket_text); 
 		if( bcout ) cout<<myitr;
 		else
 		{
